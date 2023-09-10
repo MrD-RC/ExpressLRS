@@ -22,10 +22,9 @@ public:
     virtual void handleUARTin();
 
 protected:
-    static const uint32_t SERIAL_OUTPUT_FIFO_SIZE = 256U;
     Stream *_outputPort;
     Stream *_inputPort;
-    FIFO<SERIAL_OUTPUT_FIFO_SIZE> _fifo;
+    FIFO _fifo;
     bool failsafe = false;
 
     virtual void processBytes(uint8_t *bytes, uint16_t size);
