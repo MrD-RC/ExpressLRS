@@ -14,6 +14,7 @@ typedef enum {
     HARDWARE_radio_dio0_2,
     HARDWARE_radio_dio1,
     HARDWARE_radio_dio1_2,
+    HARDWARE_radio_dio2,
     HARDWARE_radio_miso,
     HARDWARE_radio_mosi,
     HARDWARE_radio_nss,
@@ -32,6 +33,7 @@ typedef enum {
 
     // Radio power
     HARDWARE_power_enable,
+    HARDWARE_power_apc1,
     HARDWARE_power_apc2,
     HARDWARE_power_rxen,
     HARDWARE_power_txen,

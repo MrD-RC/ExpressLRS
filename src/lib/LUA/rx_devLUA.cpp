@@ -14,12 +14,14 @@ extern void reconfigureSerial1();
 extern bool BindingModeRequest;
 
 static char modelString[] = "000";
+#if defined(GPIO_PIN_PWM_OUTPUTS)
 static char pwmModes[] = "50Hz;60Hz;100Hz;160Hz;333Hz;400Hz;10kHzDuty;On/Off;DShot;Serial RX;Serial TX;I2C SCL;I2C SDA;Serial2 RX;Serial2 TX";
+#endif
 
 static struct luaItem_selection luaSerialProtocol = {
     {"Protocol", CRSF_TEXT_SELECTION},
     0, // value
-    "CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;MAVLink;DisplayPort",
+    "CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;MAVLink",
     STR_EMPTYSPACE
 };
 
@@ -27,7 +29,7 @@ static struct luaItem_selection luaSerialProtocol = {
 static struct luaItem_selection luaSerial1Protocol = {
     {"Protocol2", CRSF_TEXT_SELECTION},
     0, // value
-    "Off;CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;Tramp;SmartAudio;DisplayPort",
+    "Off;CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;Tramp;SmartAudio",
     STR_EMPTYSPACE
 };
 #endif
@@ -62,19 +64,33 @@ static struct luaItem_int8 luaSourceSysId = {
   STR_EMPTYSPACE
 };
 
+#if defined(POWER_OUTPUT_VALUES)
 static struct luaItem_selection luaTlmPower = {
     {"Tlm Power", CRSF_TEXT_SELECTION},
     0, // value
     strPowerLevels,
     "mW"
 };
+#endif
 
+#if defined(GPIO_PIN_ANT_CTRL)
 static struct luaItem_selection luaAntennaMode = {
     {"Ant. Mode", CRSF_TEXT_SELECTION},
     0, // value
     "Antenna A;Antenna B;Diversity",
     STR_EMPTYSPACE
 };
+#endif
+
+// Gemini Mode
+#if defined(GPIO_PIN_NSS_2)
+static struct luaItem_selection luaDiversityMode = {
+    {"Rx Mode", CRSF_TEXT_SELECTION},
+    0, // value
+    "Diversity;Gemini",
+    STR_EMPTYSPACE
+};
+#endif
 
 static struct luaItem_folder luaTeamraceFolder = {
     {"Team Race", CRSF_FOLDER},
@@ -115,6 +131,7 @@ static struct luaItem_string luaELRSversion = {
 
 //---------------------------- Output Mapping -----------------------------
 
+#if defined(GPIO_PIN_PWM_OUTPUTS)
 static struct luaItem_folder luaMappingFolder = {
     {"Output Mapping", CRSF_FOLDER},
 };
@@ -163,6 +180,8 @@ static struct luaItem_command luaSetFailsafe = {
     STR_EMPTYSPACE
 };
 
+#endif // GPIO_PIN_PWM_OUTPUTS
+
 //---------------------------- Output Mapping -----------------------------
 
 static struct luaItem_selection luaBindStorage = {
@@ -178,6 +197,7 @@ static struct luaItem_command luaBindMode = {
     STR_EMPTYSPACE
 };
 
+#if defined(GPIO_PIN_PWM_OUTPUTS)
 static void luaparamMappingChannelOut(struct luaPropertiesCommon *item, uint8_t arg)
 {
     bool sclAssigned = false;
@@ -470,6 +490,10 @@ static void luaparamSetFailsafe(struct luaPropertiesCommon *item, uint8_t arg)
   sendLuaCommandResponse((struct luaItem_command *)item, newStep, msg);
 }
 
+#endif // GPIO_PIN_PWM_OUTPUTS
+
+#if defined(POWER_OUTPUT_VALUES)
+
 static void luaparamSetPower(struct luaPropertiesCommon* item, uint8_t arg)
 {
   UNUSED(item);
@@ -482,6 +506,8 @@ static void luaparamSetPower(struct luaPropertiesCommon* item, uint8_t arg)
   config.SetPower(newPower);
   // POWERMGNT::setPower() will be called in updatePower() in the main loop
 }
+
+#endif // POWER_OUTPUT_VALUES
 
 static void registerLuaParameters()
 {
@@ -526,11 +552,18 @@ static void registerLuaParameters()
     });
   }
 
-  if (MinPower != MaxPower)
+  // Gemini Mode
+  if (isDualRadio())
   {
-    luadevGeneratePowerOpts(&luaTlmPower);
-    registerLUAParameter(&luaTlmPower, &luaparamSetPower);
+    registerLUAParameter(&luaDiversityMode, [](struct luaPropertiesCommon* item, uint8_t arg){
+      config.SetAntennaMode(arg); // Reusing SetAntennaMode since both GPIO_PIN_ANTENNA_SELECT and GPIO_PIN_NSS_2 will not be defined together.
+    });
   }
+
+#if defined(POWER_OUTPUT_VALUES)
+  luadevGeneratePowerOpts(&luaTlmPower);
+  registerLUAParameter(&luaTlmPower, &luaparamSetPower);
+#endif
 
   // Teamrace
   registerLUAParameter(&luaTeamraceFolder);
@@ -541,6 +574,7 @@ static void registerLuaParameters()
     config.SetTeamracePosition(arg);
   }, luaTeamraceFolder.common.id);
 
+#if defined(GPIO_PIN_PWM_OUTPUTS)
   if (OPT_HAS_SERVO_OUTPUT)
   {
     luaparamMappingChannelOut(&luaMappingOutputMode.common, luaMappingChannelOut.properties.u.value);
@@ -551,6 +585,7 @@ static void registerLuaParameters()
     registerLUAParameter(&luaMappingInverted, &luaparamMappingInverted, luaMappingFolder.common.id);
     registerLUAParameter(&luaSetFailsafe, &luaparamSetFailsafe);
   }
+#endif
 
   registerLUAParameter(&luaBindStorage, [](struct luaPropertiesCommon* item, uint8_t arg) {
     config.SetBindStorage((rx_config_bindstorage_t)arg);
@@ -593,17 +628,23 @@ static int event()
     setLuaTextSelectionValue(&luaAntennaMode, config.GetAntennaMode());
   }
 
-  if (MinPower != MaxPower)
+  // Gemini Mode
+  if (isDualRadio())
   {
-    // The last item (for MatchTX) will be MaxPower - MinPower + 1
-    uint8_t luaPwrVal = (config.GetPower() == PWR_MATCH_TX) ? POWERMGNT::getMaxPower() + 1 : config.GetPower();
-    setLuaTextSelectionValue(&luaTlmPower, luaPwrVal - POWERMGNT::getMinPower());
+    setLuaTextSelectionValue(&luaDiversityMode, config.GetAntennaMode()); // Reusing SetAntennaMode since both GPIO_PIN_ANTENNA_SELECT and GPIO_PIN_NSS_2 will not be defined together.
   }
+
+#if defined(POWER_OUTPUT_VALUES)
+  // The last item (for MatchTX) will be MaxPower - MinPower + 1
+  uint8_t luaPwrVal = (config.GetPower() == PWR_MATCH_TX) ? POWERMGNT::getMaxPower() + 1 : config.GetPower();
+  setLuaTextSelectionValue(&luaTlmPower, luaPwrVal - POWERMGNT::getMinPower());
+#endif
 
   // Teamrace
   setLuaTextSelectionValue(&luaTeamraceChannel, config.GetTeamraceChannel() - AUX2);
   setLuaTextSelectionValue(&luaTeamracePosition, config.GetTeamracePosition());
 
+#if defined(GPIO_PIN_PWM_OUTPUTS)
   if (OPT_HAS_SERVO_OUTPUT)
   {
     const rx_config_pwm_t *pwmCh = config.GetPwmChannel(luaMappingChannelOut.properties.u.value - 1);
@@ -611,6 +652,7 @@ static int event()
     setLuaTextSelectionValue(&luaMappingOutputMode, pwmCh->val.mode);
     setLuaTextSelectionValue(&luaMappingInverted, pwmCh->val.inverted);
   }
+#endif
 
   if (config.GetModelId() == 255)
   {
